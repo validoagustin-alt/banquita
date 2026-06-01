@@ -1047,9 +1047,22 @@
       }
     }
 
-    function saveState() {
+    function scrollToSetRow(setId) {
+      if (!setId) return;
+      window.requestAnimationFrame(function() {
+        const rows = document.querySelectorAll('.set-row');
+        let target = null;
+        rows.forEach(function(row) {
+          if (row.dataset.setId === setId) target = row;
+        });
+        if (target) target.scrollIntoView({ block: 'center', inline: 'nearest' });
+      });
+    }
+
+    function saveState(scrollToSetId) {
       storageSet(STORAGE_KEY, JSON.stringify(state));
       render();
+      scrollToSetRow(scrollToSetId);
     }
 
     function loadObjective() {
@@ -1856,7 +1869,7 @@
       const isEditing = editingRowId === r.set.id;
 
       if (isEditing) {
-        return '<div class="set-row is-editing">' +
+        return '<div class="set-row is-editing" data-set-id="' + setId + '">' +
           '<div class="set-edit-grid">' +
             '<div><label>Ejercicio</label><input class="inline-edit" id="inline-exercise-' + setId + '" value="' + escapeHtml(r.exercise.name) + '" /></div>' +
             '<div><label>Peso</label><input class="inline-edit" id="inline-weight-' + setId + '" type="number" inputmode="decimal" step="0.5" value="' + escapeHtml(r.set.weight) + '" /></div>' +
@@ -1877,7 +1890,7 @@
       const timerInfo = getRestTimerInfo(r.set.id, r.set.rest);
       const rirLabel = r.set.rir === '' || r.set.rir == null ? 'RIR -' : 'RIR ' + r.set.rir;
       const isWarmup = isWarmupSet(r);
-      return '<div class="set-row' + (isWarmup ? ' is-warmup' : '') + '">' +
+      return '<div class="set-row' + (isWarmup ? ' is-warmup' : '') + '" data-set-id="' + setId + '">' +
         '<button class="set-rest-timer' + timerInfo.className + '" type="button" aria-label="' + escapeHtml(timerInfo.ariaLabel) + '" title="' + escapeHtml(timerInfo.ariaLabel) + '" data-set-id="' + setId + '" data-rest="' + escapeHtml(r.set.rest || '') + '" style="--timer-progress:' + escapeHtml(timerInfo.progress) + '%"><span>' + escapeHtml(timerInfo.label || r.setNumber) + '</span></button>' +
         '<div class="set-main">' +
           '<div class="set-performance"><span class="set-weight">' + escapeHtml(formatNumber(r.set.weight)) + ' kg</span><span class="set-reps">x ' + escapeHtml(formatNumber(r.set.reps)) + ' reps</span></div>' +
@@ -2188,7 +2201,7 @@
       lastQuickRowStatus = '<div class="card" style="box-shadow:none; border-color:rgba(126,231,135,.35); color:var(--ok); margin-bottom:10px">Línea editada: ' + escapeHtml(exerciseName) + ' · ' + escapeHtml(weight) + ' kg x ' + escapeHtml(reps) + '</div>';
       editingRowId = null;
       if (draftRowId === setId) draftRowId = null;
-      saveState();
+      saveState(setId);
     }
 
     function removeDraftRow(setId) {

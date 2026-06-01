@@ -176,7 +176,7 @@
 
     nav.tabs {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 8px;
       margin-bottom: 14px;
     }
@@ -581,15 +581,53 @@
       letter-spacing: .08em;
     }
 
-    .day-control input {
+    .day-control input,
+    .day-picker-button {
       height: 36px;
       min-height: 36px;
       padding: 4px;
       border: 0;
       background: transparent;
+      color: var(--text);
       font-size: 24px;
       font-weight: 900;
       text-align: center;
+      width: 100%;
+    }
+
+    .day-picker-button {
+      cursor: pointer;
+      border-radius: 7px;
+    }
+
+    .day-menu {
+      position: fixed;
+      z-index: 220;
+      min-width: 126px;
+      padding: 6px;
+      background: rgba(14, 18, 24, .96);
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: 10px;
+      box-shadow: 0 18px 42px rgba(0,0,0,.42);
+      backdrop-filter: blur(16px);
+    }
+
+    .day-menu button {
+      display: block;
+      width: 100%;
+      min-height: 36px;
+      padding: 8px 10px;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--text);
+      text-align: left;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .day-menu button.active {
+      background: #2ee59d;
+      color: #04100b;
     }
 
     .stats-grid {
@@ -882,11 +920,13 @@
   <main>
     <nav class="tabs">
       <button id="tab-table" class="active" type="button">Entrenos</button>
+      <button id="tab-goal" type="button">Objetivo</button>
       <button id="tab-history" type="button">Historial</button>
       <button id="tab-backup" type="button">Backup</button>
     </nav>
 
     <section id="view-table"></section>
+    <section id="view-goal" class="hidden"></section>
     <section id="view-history" class="hidden"></section>
     <section id="view-backup" class="hidden"></section>
   </main>
@@ -906,6 +946,7 @@
     }
 
     const STORAGE_KEY = 'gym-log-v2';
+    const OBJECTIVE_KEY = STORAGE_KEY + '-objective';
 
     let state = normalizeState(loadState());
     let activeView = 'table';
@@ -922,6 +963,10 @@
     const DAY_1_SEED_DATE = '2026-05-30';
     const DAY_2_SEED_KEY = STORAGE_KEY + '-seed-day-2-2026-05-31';
     const DAY_2_SEED_DATE = '2026-05-31';
+    const DAY_3_SEED_KEY = STORAGE_KEY + '-seed-day-3-2026-06-01';
+    const DAY_3_SEED_DATE = '2026-06-01';
+    const DAY_4_SEED_KEY = STORAGE_KEY + '-seed-day-4-2026-06-02';
+    const DAY_4_SEED_DATE = '2026-06-02';
 
     function uid() {
       if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
@@ -1005,6 +1050,69 @@
     function saveState() {
       storageSet(STORAGE_KEY, JSON.stringify(state));
       render();
+    }
+
+    function loadObjective() {
+      try {
+        const raw = storageGet(OBJECTIVE_KEY);
+        if (!raw) return { goal: '', frequency: '', constraints: '', notes: '' };
+        const parsed = JSON.parse(raw);
+        return {
+          goal: parsed.goal || '',
+          frequency: parsed.frequency || '',
+          constraints: parsed.constraints || '',
+          notes: parsed.notes || ''
+        };
+      } catch (error) {
+        console.warn('No se pudo cargar el objetivo:', error);
+        return { goal: '', frequency: '', constraints: '', notes: '' };
+      }
+    }
+
+    function saveObjective() {
+      const objective = {
+        goal: getTrimmedValue('objective-goal'),
+        frequency: getTrimmedValue('objective-frequency'),
+        constraints: getTrimmedValue('objective-constraints'),
+        notes: getTrimmedValue('objective-notes')
+      };
+      storageSet(OBJECTIVE_KEY, JSON.stringify(objective));
+      const output = document.getElementById('objective-output');
+      if (output) output.innerHTML = '<div class="card" style="box-shadow:none; border-color:rgba(126,231,135,.35); color:var(--ok)">Objetivo guardado.</div>';
+    }
+
+    function buildTrainingSummary() {
+      const objective = loadObjective();
+      const workouts = state.workouts.slice().sort(function(a, b) {
+        return String(a.date || '').localeCompare(String(b.date || ''));
+      }).map(function(workout) {
+        return {
+          fecha: workout.date,
+          dia: state.dayByDate[workout.date] || extractDayNumber(workout.title) || workout.title || '',
+          ejercicios: (workout.exercises || []).map(function(exercise) {
+            return {
+              nombre: exercise.name,
+              notas: exercise.notes || '',
+              series: (exercise.sets || []).map(function(set, index) {
+                return {
+                  serie: index + 1,
+                  peso: set.weight,
+                  reps: set.reps,
+                  rir: set.rir,
+                  descanso: set.rest,
+                  notas: set.notes
+                };
+              })
+            };
+          })
+        };
+      });
+
+      return {
+        objetivo: objective,
+        historial: workouts,
+        instruccion: 'Generar la proxima semana como JSON estructurado. No guardar automaticamente; mostrar para revision del usuario.'
+      };
     }
 
     function makeSet(weight, reps, rir, rest, notes) {
@@ -1224,9 +1332,181 @@
       storageSet(STORAGE_KEY, JSON.stringify(state));
     }
 
+    function replaceSeedWorkout(date, day, title, exercises, seedKey) {
+      const seedNames = exercises.map(function(exercise) {
+        return exercise.name.toLowerCase();
+      });
+      let workout = getWorkoutForDate(date);
+      if (!workout) {
+        workout = { id: uid(), date, title, notes: '', exercises: [] };
+        state.workouts.unshift(workout);
+      }
+
+      workout.title = title;
+      workout.exercises = workout.exercises.filter(function(exercise) {
+        return seedNames.indexOf(String(exercise.name || '').toLowerCase()) === -1;
+      }).concat(exercises);
+
+      state.dayByDate[date] = String(day);
+      currentTableDate = date;
+      currentTableDay = String(day);
+      storageSet(seedKey, '1');
+      storageSet(STORAGE_KEY, JSON.stringify(state));
+    }
+
+    function seedDay3Workout() {
+      if (storageGet(DAY_3_SEED_KEY)) return;
+
+      const exercises = [
+        {
+          id: uid(),
+          name: 'Press plano con pausa',
+          notes: 'Calentamiento. Series efectivas registradas.',
+          sets: [
+            makeSet(95, 4, '', '', 'fácil'),
+            makeSet(95, 4, '', '', 'fácil'),
+            makeSet(95, 4, '', '', 'fácil'),
+            makeSet(95, 4, '2-3', '', '')
+          ]
+        },
+        {
+          id: uid(),
+          name: 'Remo unilateral en máquina',
+          notes: 'Ejecución: 1s positiva, 3s negativa.',
+          sets: [
+            makeSet(85, 8, 1, '', ''),
+            makeSet(85, 8, 1, '', ''),
+            makeSet(85, 8, 1, '', '')
+          ]
+        },
+        {
+          id: uid(),
+          name: 'Polea agarre bien abierto',
+          notes: '',
+          sets: [
+            makeSet(60, 10, '', '1.5 min', ''),
+            makeSet(60, 10, '', '1.5 min', ''),
+            makeSet(60, 8, '', '1.5 min', '')
+          ]
+        },
+        {
+          id: uid(),
+          name: 'Vuelos laterales con mancuerna',
+          notes: '',
+          sets: [
+            makeSet(12, 20, '', '1.5 min', ''),
+            makeSet(12, 20, '', '1.5 min', ''),
+            makeSet(12, 15, 0, '1.5 min', '')
+          ]
+        },
+        {
+          id: uid(),
+          name: 'Trapecios en barra',
+          notes: '',
+          sets: [
+            makeSet(110, 10, '', '1.5 min', ''),
+            makeSet(110, 10, '', '1.5 min', ''),
+            makeSet(110, 10, '', '1.5 min', '')
+          ]
+        },
+        {
+          id: uid(),
+          name: 'Abdominales laterales con disco',
+          notes: '',
+          sets: [
+            makeSet(16, 15, '', '1 min', ''),
+            makeSet(16, 15, '', '1 min', ''),
+            makeSet(16, 15, '', '1 min', '')
+          ]
+        }
+      ];
+
+      replaceSeedWorkout(DAY_3_SEED_DATE, 3, 'Día 3', exercises, DAY_3_SEED_KEY);
+    }
+
+    function seedDay4Workout() {
+      if (storageGet(DAY_4_SEED_KEY)) return;
+
+      const exercises = [
+        {
+          id: uid(),
+          name: 'Prensa de piernas ligera',
+          notes: '',
+          sets: [
+            makeSet(150, 12, 2, '', ''),
+            makeSet(150, 12, 2, '', ''),
+            makeSet(150, 12, 2, '', '')
+          ]
+        },
+        {
+          id: uid(),
+          name: 'Curl femoral de pie',
+          notes: 'Cambio descanso de 2 min a 1.5 min.',
+          sets: [
+            makeSet(12, 15, '', '1.5 min', ''),
+            makeSet(12, 15, '', '1.5 min', ''),
+            makeSet(12, 15, 1, '1.5 min', '')
+          ]
+        },
+        {
+          id: uid(),
+          name: 'Extensora de cuádriceps',
+          notes: '',
+          sets: [
+            makeSet(70, 15, '', '1.5 min', 'sin pausa'),
+            makeSet(70, 15, '', '1.5 min', ''),
+            makeSet(70, 15, 3, '1.5 min', '')
+          ]
+        },
+        {
+          id: uid(),
+          name: 'Curl femoral acostado',
+          notes: '',
+          sets: [
+            makeSet(60, 12, '', '', ''),
+            makeSet(60, 12, '', '', ''),
+            makeSet(60, 12, 0, '', '')
+          ]
+        },
+        {
+          id: uid(),
+          name: 'Press banca agarre cerrado',
+          notes: 'Me gustaría solidificar.',
+          sets: [
+            makeSet(80, 8, 1, '', ''),
+            makeSet(80, 8, 1, '', ''),
+            makeSet(80, 8, 1, '', '')
+          ]
+        },
+        {
+          id: uid(),
+          name: 'Biceps mancuerna',
+          notes: '',
+          sets: [
+            makeSet(12, 15, '', '1 min', ''),
+            makeSet(12, 15, '', '1 min', ''),
+            makeSet(12, 13, 0, '1 min', '')
+          ]
+        },
+        {
+          id: uid(),
+          name: 'Pantorrillas',
+          notes: '',
+          sets: [
+            makeSet(60, 20, '', '', ''),
+            makeSet(60, 20, '', '', ''),
+            makeSet(60, 20, '', '', ''),
+            makeSet(60, 20, 0, '', '')
+          ]
+        }
+      ];
+
+      replaceSeedWorkout(DAY_4_SEED_DATE, 4, 'Día 4', exercises, DAY_4_SEED_KEY);
+    }
+
     function setView(view) {
       activeView = view;
-      ['table', 'history', 'backup'].forEach(function(name) {
+      ['table', 'goal', 'history', 'backup'].forEach(function(name) {
         document.getElementById('view-' + name).classList.toggle('hidden', name !== view);
         document.getElementById('tab-' + name).classList.toggle('active', name === view);
       });
@@ -1290,6 +1570,22 @@
         return extractDayNumber(w.title) === day;
       });
       return workout ? workout.date : '';
+    }
+
+    function getLoadedDays() {
+      return state.workouts.map(function(workout) {
+        return {
+          date: workout.date,
+          day: state.dayByDate[workout.date] || extractDayNumber(workout.title) || workout.title || workout.date
+        };
+      }).filter(function(item) {
+        return item.date && item.day !== '';
+      }).sort(function(a, b) {
+        const dayA = Number(a.day);
+        const dayB = Number(b.day);
+        if (!Number.isNaN(dayA) && !Number.isNaN(dayB)) return dayA - dayB;
+        return String(a.day).localeCompare(String(b.day));
+      });
     }
 
     function getWorkoutForDate(date) {
@@ -1615,7 +1911,7 @@
 
       const shell = document.createElement('div');
       shell.innerHTML =
-        '<div class="day-control floating-day-control"><label>Dia</label><input id="table-day-floating" type="number" inputmode="numeric" value="' + escapeHtml(currentTableDay) + '" /></div>' +
+        '<div class="day-control floating-day-control"><label>Dia</label><button class="day-picker-button" type="button" data-day-picker="1">' + escapeHtml(currentTableDay || '-') + '</button></div>' +
         '<div class="card app-hero">' +
           '<div class="hero-top">' +
             '<div>' +
@@ -1623,7 +1919,7 @@
               '<p class="hero-title">Dia ' + escapeHtml(currentTableDay || '-') + '</p>' +
               '<p class="hero-subtitle">' + escapeHtml(groups.length) + ' ejercicios registrados</p>' +
             '</div>' +
-            '<div class="day-control hero-day-control"><label>Dia</label><input id="table-day" type="number" inputmode="numeric" value="' + escapeHtml(currentTableDay) + '" /></div>' +
+            '<div class="day-control hero-day-control"><label>Dia</label><button class="day-picker-button" type="button" data-day-picker="1">' + escapeHtml(currentTableDay || '-') + '</button></div>' +
           '</div>' +
           (currentWorkout && currentWorkout.notes ? '<p class="day-note">' + escapeHtml(currentWorkout.notes) + '</p>' : '') +
           '<div class="stats-grid">' +
@@ -2118,6 +2414,40 @@
         '</div>';
     }
 
+    function renderGoal() {
+      const el = document.getElementById('view-goal');
+      const objective = loadObjective();
+      el.innerHTML =
+        '<div class="card">' +
+          '<p class="title">Objetivo</p>' +
+          '<p class="small muted">Estos datos se guardan localmente. La generación con IA todavía necesita un backend seguro para no exponer claves en GitHub.</p>' +
+          '<div class="quick-field-stack">' +
+            '<div><label>Objetivo principal</label><input id="objective-goal" value="' + escapeHtml(objective.goal) + '" placeholder="Ej: hipertrofia con progresión de fuerza" /></div>' +
+            '<div><label>Frecuencia semanal</label><input id="objective-frequency" value="' + escapeHtml(objective.frequency) + '" placeholder="Ej: 4 días por semana" /></div>' +
+            '<div><label>Restricciones</label><input id="objective-constraints" value="' + escapeHtml(objective.constraints) + '" placeholder="Ej: cuidar hombro, no pasar de 90 min" /></div>' +
+            '<div><label>Notas para la IA</label><textarea id="objective-notes" placeholder="Preferencias, ejercicios que querés mantener, molestias, prioridades...">' + escapeHtml(objective.notes) + '</textarea></div>' +
+          '</div>' +
+          '<div class="actions">' +
+            '<button type="button" class="primary" id="btn-save-objective">Guardar objetivo</button>' +
+            '<button type="button" id="btn-generate-next-week">Generar próxima semana</button>' +
+          '</div>' +
+        '</div>' +
+        '<div id="objective-output"></div>';
+    }
+
+    function generateNextWeek() {
+      saveObjective();
+      const summary = buildTrainingSummary();
+      const output = document.getElementById('objective-output');
+      if (!output) return;
+      output.innerHTML =
+        '<div class="card">' +
+          '<p class="title">Próxima conexión IA</p>' +
+          '<p class="small muted">Este es el paquete que la app enviará al backend cuando conectemos IA. Todavía no modifica rutinas.</p>' +
+          '<textarea class="text-output" readonly>' + escapeHtml(JSON.stringify(summary, null, 2)) + '</textarea>' +
+        '</div>';
+    }
+
     function downloadBackup() {
       const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
       downloadBlob(blob, 'gym-log-backup-' + todayISO() + '.json');
@@ -2182,6 +2512,7 @@
 
     function render() {
       if (activeView === 'table') renderTable();
+      if (activeView === 'goal') renderGoal();
       if (activeView === 'history') renderHistory();
       if (activeView === 'backup') renderBackup();
       updateFloatingDayControl();
@@ -2192,6 +2523,7 @@
       const floating = document.querySelector('.floating-day-control');
       if (!original || !floating || activeView !== 'table') {
         document.body.classList.remove('day-is-floating');
+        closeDayMenu();
         return;
       }
       const rect = original.getBoundingClientRect();
@@ -2214,6 +2546,42 @@
         if (floatingDay) floatingDay.value = currentTableDay;
       }
       updateFloatingDayControl();
+    }
+
+    function closeDayMenu() {
+      const menu = document.getElementById('day-menu');
+      if (menu) menu.remove();
+    }
+
+    function selectLoadedDay(date) {
+      if (!date) return;
+      currentTableDate = date;
+      currentTableDay = getStoredDayForDate(date) || extractDayNumber(getWorkoutForDate(date)?.title) || '';
+      editingRowId = null;
+      draftRowId = null;
+      closeDayMenu();
+      renderTable();
+    }
+
+    function openDayMenu(anchor) {
+      closeDayMenu();
+      const days = getLoadedDays();
+      if (days.length === 0) return;
+
+      const menu = document.createElement('div');
+      menu.id = 'day-menu';
+      menu.className = 'day-menu';
+      menu.innerHTML = days.map(function(item) {
+        const isActive = item.date === currentTableDate;
+        return '<button type="button" class="' + (isActive ? 'active ' : '') + 'btn-select-day" data-date="' + escapeHtml(item.date) + '">Día ' + escapeHtml(item.day) + '</button>';
+      }).join('');
+      document.body.appendChild(menu);
+
+      const rect = anchor.getBoundingClientRect();
+      const top = Math.min(rect.bottom + 6, window.innerHeight - menu.offsetHeight - 10);
+      const left = Math.min(Math.max(8, rect.left), window.innerWidth - menu.offsetWidth - 8);
+      menu.style.top = top + 'px';
+      menu.style.left = left + 'px';
     }
 
     function runTests() {
@@ -2243,6 +2611,7 @@
       if (!target) return;
 
       if (target.id === 'tab-table') setView('table');
+      if (target.id === 'tab-goal') setView('goal');
       if (target.id === 'tab-history') setView('history');
       if (target.id === 'tab-backup') setView('backup');
       if (target.id === 'btn-show-quick-row') createDraftRow();
@@ -2253,6 +2622,11 @@
       if (target.id === 'btn-import-json') importBackup();
       if (target.id === 'btn-clear-data') clearAllData();
       if (target.id === 'btn-delete-day') deleteCurrentDay();
+      if (target.id === 'btn-save-objective') saveObjective();
+      if (target.id === 'btn-generate-next-week') generateNextWeek();
+      if (target.dataset.dayPicker) openDayMenu(target);
+      if (target.classList.contains('btn-select-day')) selectLoadedDay(target.dataset.date);
+      if (!target.dataset.dayPicker && !target.classList.contains('btn-select-day')) closeDayMenu();
 
       if (target.classList.contains('btn-edit-set')) {
         showEditSeriesPanel(target.dataset.workoutId, target.dataset.exerciseId, target.dataset.setId);
@@ -2306,6 +2680,8 @@
         runTests();
         seedDay1Workout();
         seedDay2Workout();
+        seedDay3Workout();
+        seedDay4Workout();
         setView('table');
         window.addEventListener('scroll', updateFloatingDayControl, { passive: true });
         window.addEventListener('resize', updateFloatingDayControl);

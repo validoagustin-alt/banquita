@@ -715,9 +715,9 @@
       z-index: 1;
       margin: 12px 0 0;
       padding: 9px 10px;
-      color: #f7d88a;
-      background: rgba(247,216,138,.08);
-      border: 1px solid rgba(247,216,138,.14);
+      color: var(--muted);
+      background: rgba(255,255,255,.045);
+      border: 1px solid rgba(255,255,255,.07);
       border-radius: 8px;
       font-size: 12px;
     }
@@ -747,11 +747,9 @@
     }
 
     .set-row.is-warmup {
-      background:
-        linear-gradient(90deg, rgba(142, 217, 255, .055), rgba(255,255,255,.035) 48%),
-        rgba(255,255,255,.035);
-      border-color: rgba(247, 216, 138, .42);
-      box-shadow: 0 0 0 1px rgba(247, 216, 138, .18);
+      background: rgba(255,255,255,.045);
+      border-color: rgba(255,255,255,.07);
+      box-shadow: none;
     }
 
     .set-row.is-warmup .set-weight {
@@ -799,15 +797,17 @@
     }
 
     .tag.note {
-      color: #f7d88a;
-      background: rgba(247,216,138,.08);
-      border-color: rgba(247,216,138,.14);
+      color: var(--muted);
+      background: transparent;
+      border-color: transparent;
+      padding-left: 0;
+      padding-right: 0;
     }
 
     .tag.warmup {
-      color: #9fc3d6;
-      background: rgba(142,217,255,.07);
-      border-color: rgba(142,217,255,.14);
+      color: #171301;
+      background: #f7d88a;
+      border-color: #f7d88a;
       font-weight: 800;
       text-transform: uppercase;
       letter-spacing: .05em;

@@ -1008,6 +1008,7 @@
     function normalizeState(data) {
       if (!data || !Array.isArray(data.workouts)) data = { workouts: [] };
       if (!data.dayByDate || typeof data.dayByDate !== 'object') data.dayByDate = {};
+      if (typeof data.lastTableDate !== 'string') data.lastTableDate = '';
       data.workouts.forEach(function(workout) {
         (workout.exercises || []).forEach(function(exercise) {
           (exercise.sets || []).forEach(function(set) {
@@ -1060,6 +1061,7 @@
     }
 
     function saveState(scrollToSetId) {
+      rememberTableDate(currentTableDate);
       storageSet(STORAGE_KEY, JSON.stringify(state));
       render();
       scrollToSetRow(scrollToSetId);
@@ -1542,6 +1544,7 @@
 
     function getDefaultTableDate() {
       if (currentTableDate) return currentTableDate;
+      if (isLoadedTableDate(state.lastTableDate)) return state.lastTableDate;
       const rows = getAllRows();
       if (rows.length > 0) return rows[0].workout.date || todayISO();
       return todayISO();
@@ -1558,6 +1561,25 @@
       return state.dayByDate[selectedDate] || '';
     }
 
+    function isLoadedTableDate(date) {
+      if (!date) return false;
+      return state.workouts.some(function(workout) {
+        return workout.date === date;
+      });
+    }
+
+    function rememberTableDate(date, persist) {
+      if (!isLoadedTableDate(date)) return;
+      state.lastTableDate = date;
+      if (persist) storageSet(STORAGE_KEY, JSON.stringify(state));
+    }
+
+    function restoreLastTableSelection() {
+      if (!isLoadedTableDate(state.lastTableDate)) return;
+      currentTableDate = state.lastTableDate;
+      currentTableDay = getStoredDayForDate(currentTableDate) || extractDayNumber(getWorkoutForDate(currentTableDate)?.title) || '';
+    }
+
     function getDefaultTableDay() {
       if (currentTableDay !== null && currentTableDay !== undefined) return currentTableDay;
       const selectedDate = getDefaultTableDate();
@@ -1567,6 +1589,7 @@
     function setStoredDayForDate(date, dayValue) {
       const selectedDate = date || getDefaultTableDate();
       state.dayByDate[selectedDate] = String(dayValue || '').trim();
+      rememberTableDate(selectedDate);
       storageSet(STORAGE_KEY, JSON.stringify(state));
     }
 
@@ -2240,6 +2263,7 @@
         return workout.date !== date;
       });
       delete state.dayByDate[date];
+      if (state.lastTableDate === date) state.lastTableDate = '';
 
       if (activeRestTimer) activeRestTimer = null;
       editingRowId = null;
@@ -2550,6 +2574,7 @@
         currentTableDate = matchingDate;
         editingRowId = null;
         draftRowId = null;
+        rememberTableDate(currentTableDate, true);
         renderTable();
       } else {
         setStoredDayForDate(currentTableDate || todayISO(), currentTableDay);
@@ -2573,6 +2598,7 @@
       editingRowId = null;
       draftRowId = null;
       closeDayMenu();
+      rememberTableDate(currentTableDate, true);
       renderTable();
     }
 
@@ -2681,6 +2707,7 @@
         currentTableDay = null;
         editingRowId = null;
         draftRowId = null;
+        rememberTableDate(currentTableDate, true);
         renderTable();
       }
       if (event.target && (event.target.id === 'table-day' || event.target.id === 'table-day-floating')) {
@@ -2695,6 +2722,7 @@
         seedDay2Workout();
         seedDay3Workout();
         seedDay4Workout();
+        restoreLastTableSelection();
         setView('table');
         window.addEventListener('scroll', updateFloatingDayControl, { passive: true });
         window.addEventListener('resize', updateFloatingDayControl);

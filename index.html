@@ -324,6 +324,15 @@
       background: #9fd8a8;
     }
 
+    .set-rest-timer.is-done {
+      border-color: var(--ok);
+      color: #071108;
+    }
+
+    .set-rest-timer.is-done::after {
+      background: var(--ok);
+    }
+
     .exercise-name {
       overflow: visible;
       text-overflow: clip;
@@ -1721,7 +1730,16 @@
       playRestCompleteAlert();
     }
 
-    function getRestTimerInfo(setId, rest) {
+    function getRestTimerInfo(setId, rest, done) {
+      if (done) {
+        return {
+          className: ' is-done',
+          label: '\u2713',
+          progress: 100,
+          ariaLabel: 'Serie ejecutada. Tocar para desmarcar'
+        };
+      }
+
       const timer = activeRestTimer && activeRestTimer.setId === setId ? activeRestTimer : null;
       const durationSeconds = parseRestSeconds(rest);
       if (!timer) {
@@ -1729,7 +1747,7 @@
           className: '',
           label: '',
           progress: 0,
-          ariaLabel: durationSeconds ? 'Iniciar descanso de ' + formatTimerSeconds(durationSeconds) : 'Sin descanso configurado'
+          ariaLabel: 'Marcar serie como ejecutada'
         };
       }
 
@@ -1750,7 +1768,8 @@
     function updateRestTimerButtons() {
       const buttons = document.querySelectorAll('.set-rest-timer');
       buttons.forEach(function(button) {
-        const info = getRestTimerInfo(button.dataset.setId, button.dataset.rest);
+        const ref = findSetRefById(button.dataset.setId);
+        const info = getRestTimerInfo(button.dataset.setId, button.dataset.rest, ref && ref.set.done);
         const label = button.querySelector('span');
         if (label) label.textContent = info.label;
         button.setAttribute('aria-label', info.ariaLabel);
@@ -1758,6 +1777,7 @@
         button.style.setProperty('--timer-progress', info.progress + '%');
         button.classList.toggle('is-running', info.className.indexOf('is-running') !== -1);
         button.classList.toggle('is-complete', info.className.indexOf('is-complete') !== -1);
+        button.classList.toggle('is-done', info.className.indexOf('is-done') !== -1);
       });
     }
 
@@ -1783,6 +1803,28 @@
       activeRestTimer = { setId, endAt: Date.now() + (durationSeconds * 1000), durationSeconds, notified: false };
       updateRestTimerButtons();
       ensureRestTimerTicker();
+    }
+
+    function findSetRefById(setId) {
+      for (let workoutIndex = 0; workoutIndex < state.workouts.length; workoutIndex += 1) {
+        const workout = state.workouts[workoutIndex];
+        for (let exerciseIndex = 0; exerciseIndex < workout.exercises.length; exerciseIndex += 1) {
+          const exercise = workout.exercises[exerciseIndex];
+          const set = exercise.sets.find(function(item) {
+            return item.id === setId;
+          });
+          if (set) return { workout, exercise, set };
+        }
+      }
+      return null;
+    }
+
+    function toggleSetDone(setId) {
+      const ref = findSetRefById(setId);
+      if (!ref) return;
+      if (activeRestTimer && activeRestTimer.setId === setId) activeRestTimer = null;
+      ref.set.done = !ref.set.done;
+      saveState(setId);
     }
 
     function renderTable() {
@@ -1837,7 +1879,7 @@
                   '<td class="col-action"><button class="btn-save-inline btn-save-inline-set" type="button" data-workout-id="' + escapeHtml(r.workout.id) + '" data-exercise-id="' + escapeHtml(r.exercise.id) + '" data-set-id="' + escapeHtml(r.set.id) + '">✓</button><button class="ghost btn-cancel-inline-set" type="button">↩</button></td>' +
                 '</tr>';
               }
-              const timerInfo = getRestTimerInfo(r.set.id, r.set.rest);
+              const timerInfo = getRestTimerInfo(r.set.id, r.set.rest, r.set.done);
               return '<tr' + rowClass + '>' +
                 '<td><div class="exercise-cell"><button class="set-rest-timer' + timerInfo.className + '" type="button" aria-label="' + escapeHtml(timerInfo.ariaLabel) + '" title="' + escapeHtml(timerInfo.ariaLabel) + '" data-set-id="' + escapeHtml(r.set.id) + '" data-rest="' + escapeHtml(r.set.rest || '') + '" style="--timer-progress:' + escapeHtml(timerInfo.progress) + '%"><span>' + escapeHtml(timerInfo.label) + '</span></button><span class="exercise-name">' + escapeHtml(r.exercise.name) + '</span></div></td>' +
                 '<td class="col-series">' + r.setNumber + '</td>' +
@@ -1910,7 +1952,7 @@
         '</div>';
       }
 
-      const timerInfo = getRestTimerInfo(r.set.id, r.set.rest);
+      const timerInfo = getRestTimerInfo(r.set.id, r.set.rest, r.set.done);
       const rirLabel = r.set.rir === '' || r.set.rir == null ? 'RIR -' : 'RIR ' + r.set.rir;
       const isWarmup = isWarmupSet(r);
       return '<div class="set-row' + (isWarmup ? ' is-warmup' : '') + '" data-set-id="' + setId + '">' +
@@ -2648,6 +2690,7 @@
     document.addEventListener('click', function(event) {
       const target = event.target;
       if (!target) return;
+      const setDoneButton = target.closest ? target.closest('.set-rest-timer') : null;
 
       if (target.id === 'tab-table') setView('table');
       if (target.id === 'tab-goal') setView('goal');
@@ -2692,8 +2735,8 @@
         deleteSet(target.dataset.workoutId, target.dataset.exerciseId, target.dataset.setId);
       }
 
-      if (target.classList.contains('set-rest-timer')) {
-        startRestTimer(target.dataset.setId, target.dataset.rest);
+      if (setDoneButton) {
+        toggleSetDone(setDoneButton.dataset.setId);
       }
 
       if (target.id === 'btn-show-workout-text') showWorkoutText(target.dataset.workoutId);

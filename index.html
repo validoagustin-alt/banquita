@@ -705,6 +705,18 @@
       border-color: rgba(255,255,255,.92);
     }
 
+    .exercise-card.is-drop-before {
+      box-shadow:
+        inset 0 4px 0 rgba(255,255,255,.96),
+        0 12px 36px rgba(0,0,0,.28);
+    }
+
+    .exercise-card.is-drop-after {
+      box-shadow:
+        inset 0 -4px 0 rgba(255,255,255,.96),
+        0 12px 36px rgba(0,0,0,.28);
+    }
+
     .exercise-card-head {
       display: flex;
       align-items: flex-start;
@@ -737,6 +749,7 @@
       user-select: none;
       -webkit-user-select: none;
       -webkit-touch-callout: none;
+      touch-action: none;
     }
 
     .exercise-reorder-actions {
@@ -1002,6 +1015,9 @@
     let draftRowId = null;
     let selectedExerciseId = null;
     let exerciseLongPressTimer = null;
+    let exerciseLongPressPoint = null;
+    let isExerciseReorderDragging = false;
+    let pendingExerciseDrop = null;
     let currentTableDate = null;
     let currentTableDay = null;
     let activeRestTimer = null;
@@ -1965,18 +1981,22 @@
       return groups;
     }
 
-    function selectExerciseForReorder(exerciseId) {
+    function selectExerciseForReorder(exerciseId, shouldScroll) {
       if (!exerciseId) return;
+      if (shouldScroll === undefined) shouldScroll = true;
       selectedExerciseId = selectedExerciseId === exerciseId ? null : exerciseId;
       editingRowId = null;
       draftRowId = null;
       renderTable();
-      scrollToExerciseCard(exerciseId);
+      if (shouldScroll) scrollToExerciseCard(exerciseId);
     }
 
     function clearExerciseReorderSelection() {
       if (!selectedExerciseId) return;
       selectedExerciseId = null;
+      isExerciseReorderDragging = false;
+      pendingExerciseDrop = null;
+      clearExerciseDropMarkers();
       renderTable();
     }
 
@@ -2003,6 +2023,47 @@
 
       saveState();
       scrollToExerciseCard(selectedExerciseId);
+    }
+
+    function clearExerciseDropMarkers() {
+      document.querySelectorAll('.exercise-card.is-drop-before, .exercise-card.is-drop-after').forEach(function(card) {
+        card.classList.remove('is-drop-before', 'is-drop-after');
+      });
+    }
+
+    function getExerciseDragPoint(event) {
+      const touch = event.touches && event.touches[0] ? event.touches[0] : null;
+      const changedTouch = event.changedTouches && event.changedTouches[0] ? event.changedTouches[0] : null;
+      const point = touch || changedTouch || event;
+      if (typeof point.clientX !== 'number' || typeof point.clientY !== 'number') return null;
+      return { x: point.clientX, y: point.clientY };
+    }
+
+    function updateExerciseDropTarget(x, y) {
+      if (!selectedExerciseId) return;
+      const element = document.elementFromPoint(x, y);
+      const card = element && element.closest ? element.closest('.exercise-card') : null;
+      clearExerciseDropMarkers();
+      pendingExerciseDrop = null;
+      if (!card || card.dataset.exerciseId === selectedExerciseId) return;
+
+      const rect = card.getBoundingClientRect();
+      const position = y < rect.top + (rect.height / 2) ? 'before' : 'after';
+      card.classList.add(position === 'before' ? 'is-drop-before' : 'is-drop-after');
+      pendingExerciseDrop = {
+        targetExerciseId: card.dataset.exerciseId,
+        position
+      };
+    }
+
+    function autoScrollDuringExerciseDrag(y) {
+      const edgeSize = 90;
+      const step = 14;
+      if (y < edgeSize) {
+        window.scrollBy(0, -step);
+      } else if (y > window.innerHeight - edgeSize) {
+        window.scrollBy(0, step);
+      }
     }
 
     function formatNumber(value) {
@@ -2790,8 +2851,11 @@
 
       window.clearTimeout(exerciseLongPressTimer);
       const exerciseId = handle.dataset.exerciseId;
+      exerciseLongPressPoint = getExerciseDragPoint(event);
       exerciseLongPressTimer = window.setTimeout(function() {
-        selectExerciseForReorder(exerciseId);
+        selectExerciseForReorder(exerciseId, false);
+        isExerciseReorderDragging = true;
+        pendingExerciseDrop = null;
         if (navigator.vibrate) navigator.vibrate(35);
       }, 550);
     }
@@ -2799,6 +2863,36 @@
     function cancelExerciseLongPress() {
       window.clearTimeout(exerciseLongPressTimer);
       exerciseLongPressTimer = null;
+      exerciseLongPressPoint = null;
+    }
+
+    function handleExerciseDragMove(event) {
+      if (!isExerciseReorderDragging) {
+        const point = getExerciseDragPoint(event);
+        if (!point || !exerciseLongPressPoint) return;
+        const deltaX = point.x - exerciseLongPressPoint.x;
+        const deltaY = point.y - exerciseLongPressPoint.y;
+        if (Math.sqrt((deltaX * deltaX) + (deltaY * deltaY)) > 12) cancelExerciseLongPress();
+        return;
+      }
+
+      const point = getExerciseDragPoint(event);
+      if (!point) return;
+      if (event.cancelable) event.preventDefault();
+      autoScrollDuringExerciseDrag(point.y);
+      updateExerciseDropTarget(point.x, point.y);
+    }
+
+    function finishExerciseDrag() {
+      const wasDragging = isExerciseReorderDragging;
+      cancelExerciseLongPress();
+      if (!wasDragging) return;
+
+      isExerciseReorderDragging = false;
+      const drop = pendingExerciseDrop;
+      pendingExerciseDrop = null;
+      clearExerciseDropMarkers();
+      if (drop) moveSelectedExercise(drop.targetExerciseId, drop.position);
     }
 
     function runTests() {
@@ -2904,12 +2998,13 @@
     });
 
     document.addEventListener('touchstart', startExerciseLongPress, { passive: true });
-    document.addEventListener('touchend', cancelExerciseLongPress);
-    document.addEventListener('touchcancel', cancelExerciseLongPress);
-    document.addEventListener('touchmove', cancelExerciseLongPress);
+    document.addEventListener('touchend', finishExerciseDrag);
+    document.addEventListener('touchcancel', finishExerciseDrag);
+    document.addEventListener('touchmove', handleExerciseDragMove, { passive: false });
     document.addEventListener('mousedown', startExerciseLongPress);
-    document.addEventListener('mouseup', cancelExerciseLongPress);
-    document.addEventListener('mouseleave', cancelExerciseLongPress);
+    document.addEventListener('mousemove', handleExerciseDragMove);
+    document.addEventListener('mouseup', finishExerciseDrag);
+    document.addEventListener('mouseleave', finishExerciseDrag);
     document.addEventListener('contextmenu', function(event) {
       if (getExerciseReorderHandle(event.target)) event.preventDefault();
     });

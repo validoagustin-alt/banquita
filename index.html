@@ -694,6 +694,17 @@
       box-shadow: 0 12px 36px rgba(0,0,0,.28);
     }
 
+    .exercise-card.is-reorder-selected {
+      border-color: rgba(255,255,255,.96);
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,.72),
+        0 12px 36px rgba(0,0,0,.28);
+    }
+
+    .exercise-card.is-reorder-selected .set-row {
+      border-color: rgba(255,255,255,.92);
+    }
+
     .exercise-card-head {
       display: flex;
       align-items: flex-start;
@@ -722,6 +733,32 @@
       font-size: 17px;
       line-height: 1.15;
       font-weight: 900;
+      cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+    }
+
+    .exercise-reorder-actions {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin: -2px 0 10px 34px;
+    }
+
+    .exercise-reorder-actions button {
+      min-height: 30px;
+      margin: 0;
+      padding: 6px 9px;
+      border-radius: 8px;
+      font-size: 11px;
+    }
+
+    .exercise-reorder-label {
+      color: var(--text);
+      font-size: 11px;
+      font-weight: 800;
     }
 
     .exercise-meta {
@@ -963,6 +1000,8 @@
     let lastQuickRowDefaults = { date: todayISO(), workoutTitle: '', exerciseName: '', weight: '', rest: '' };
     let editingRowId = null;
     let draftRowId = null;
+    let selectedExerciseId = null;
+    let exerciseLongPressTimer = null;
     let currentTableDate = null;
     let currentTableDay = null;
     let activeRestTimer = null;
@@ -1065,6 +1104,14 @@
         rows.forEach(function(row) {
           if (row.dataset.setId === setId) target = row;
         });
+        if (target) target.scrollIntoView({ block: 'center', inline: 'nearest' });
+      });
+    }
+
+    function scrollToExerciseCard(exerciseId) {
+      if (!exerciseId) return;
+      window.requestAnimationFrame(function() {
+        const target = document.querySelector('.exercise-card[data-exercise-id="' + exerciseId + '"]');
         if (target) target.scrollIntoView({ block: 'center', inline: 'nearest' });
       });
     }
@@ -1639,6 +1686,10 @@
       });
     }
 
+    function getCurrentWorkout() {
+      return getWorkoutForDate(currentTableDate || getDefaultTableDate());
+    }
+
     function getOrCreateWorkoutForDate(date) {
       let workout = getWorkoutForDate(date);
       if (!workout) {
@@ -1914,6 +1965,46 @@
       return groups;
     }
 
+    function selectExerciseForReorder(exerciseId) {
+      if (!exerciseId) return;
+      selectedExerciseId = selectedExerciseId === exerciseId ? null : exerciseId;
+      editingRowId = null;
+      draftRowId = null;
+      renderTable();
+      scrollToExerciseCard(exerciseId);
+    }
+
+    function clearExerciseReorderSelection() {
+      if (!selectedExerciseId) return;
+      selectedExerciseId = null;
+      renderTable();
+    }
+
+    function moveSelectedExercise(targetExerciseId, position) {
+      if (!selectedExerciseId || !targetExerciseId || selectedExerciseId === targetExerciseId) return;
+      const workout = getCurrentWorkout();
+      if (!workout) return;
+
+      const fromIndex = workout.exercises.findIndex(function(exercise) {
+        return exercise.id === selectedExerciseId;
+      });
+      const targetIndex = workout.exercises.findIndex(function(exercise) {
+        return exercise.id === targetExerciseId;
+      });
+      if (fromIndex === -1 || targetIndex === -1) return;
+
+      const moving = workout.exercises.splice(fromIndex, 1)[0];
+      let insertIndex = workout.exercises.findIndex(function(exercise) {
+        return exercise.id === targetExerciseId;
+      });
+      if (insertIndex === -1) insertIndex = workout.exercises.length;
+      if (position === 'after') insertIndex += 1;
+      workout.exercises.splice(insertIndex, 0, moving);
+
+      saveState();
+      scrollToExerciseCard(selectedExerciseId);
+    }
+
     function formatNumber(value) {
       const number = Number(value || 0);
       if (Math.abs(number - Math.round(number)) < 0.001) return String(Math.round(number));
@@ -1982,12 +2073,23 @@
       const el = document.getElementById('view-table');
       el.innerHTML = '';
       const currentWorkout = getWorkoutForDate(currentTableDate);
+      if (selectedExerciseId && currentWorkout && !currentWorkout.exercises.some(function(exercise) {
+        return exercise.id === selectedExerciseId;
+      })) {
+        selectedExerciseId = null;
+      }
 
       const maxGroupEstimated = groups.reduce(function(max, group) {
         return Math.max(max, group.estimated);
       }, 0);
 
       const shell = document.createElement('div');
+      const addSeriesControls =
+        '<div id="quick-row-status">' + lastQuickRowStatus + '</div>' +
+        '<div class="workout-actions">' +
+          '<button class="add-line" id="btn-show-quick-row" type="button">Agregar serie</button>' +
+        '</div>' +
+        '<div id="quick-row-form"></div>';
       shell.innerHTML =
         '<div class="day-control floating-day-control"><label>Dia</label><button class="day-picker-button" type="button" data-day-picker="1">' + escapeHtml(currentTableDay || '-') + '</button></div>' +
         '<div class="card app-hero">' +
@@ -2006,14 +2108,11 @@
           '</div>' +
         '</div>' +
         '<div class="workout-actions">' +
-          '<button class="add-line" id="btn-show-quick-row" type="button">Agregar serie</button>' +
           '<button class="danger btn-delete-day" id="btn-delete-day" type="button">Borrar dia</button>' +
-        '</div>' +
-        '<div id="quick-row-status">' + lastQuickRowStatus + '</div>' +
-        '<div id="quick-row-form"></div>';
+        '</div>';
 
       if (rows.length === 0) {
-        shell.insertAdjacentHTML('beforeend', '<div class="card empty">Todavia no hay series cargadas para este dia.</div>');
+        shell.insertAdjacentHTML('beforeend', '<div class="card empty">Todavia no hay series cargadas para este dia.</div>' + addSeriesControls);
         el.appendChild(shell);
         return;
       }
@@ -2021,18 +2120,26 @@
       shell.insertAdjacentHTML('beforeend',
         '<div class="feed">' + groups.map(function(group, index) {
           const volumeWidth = maxGroupEstimated ? Math.max(8, Math.round((group.estimated / maxGroupEstimated) * 100)) : 0;
-          return '<section class="card exercise-card">' +
+          const exerciseId = escapeHtml(group.exercise.id);
+          const isSelected = selectedExerciseId === group.exercise.id;
+          const hasSelectedExercise = !!selectedExerciseId;
+          const reorderActions = hasSelectedExercise && !isSelected
+            ? '<div class="exercise-reorder-actions"><button class="ghost btn-move-exercise" type="button" data-target-exercise-id="' + exerciseId + '" data-position="before">Antes</button><button class="ghost btn-move-exercise" type="button" data-target-exercise-id="' + exerciseId + '" data-position="after">Despues</button></div>'
+            : (isSelected ? '<div class="exercise-reorder-actions"><span class="exercise-reorder-label">Seleccionado para mover</span><button class="ghost btn-clear-exercise-reorder" type="button">Cancelar</button></div>' : '');
+          return '<section class="card exercise-card' + (isSelected ? ' is-reorder-selected' : '') + '" data-exercise-id="' + exerciseId + '">' +
             '<div class="exercise-card-head">' +
               '<div>' +
-                '<p class="exercise-title"><span class="exercise-index">' + escapeHtml(index + 1) + '</span>' + escapeHtml(group.exercise.name) + '</p>' +
+                '<p class="exercise-title" data-reorder-handle="1" data-exercise-id="' + exerciseId + '"><span class="exercise-index">' + escapeHtml(index + 1) + '</span>' + escapeHtml(group.exercise.name) + '</p>' +
                 '<p class="exercise-meta">' + escapeHtml(group.rows.length) + ' series' + (group.exercise.notes ? ' - ' + escapeHtml(group.exercise.notes) : '') + '</p>' +
               '</div>' +
               '<div class="exercise-volume">' + escapeHtml(formatNumber(group.estimated)) + ' kg 1RM</div>' +
             '</div>' +
+            reorderActions +
             '<div class="volume-bar"><span style="--volume-width:' + escapeHtml(volumeWidth) + '%"></span></div>' +
             '<div class="set-list">' + group.rows.map(renderSetRow).join('') + '</div>' +
           '</section>';
-        }).join('') + '</div>'
+        }).join('') + '</div>' +
+        addSeriesControls
       );
 
       el.appendChild(shell);
@@ -2049,6 +2156,7 @@
 
       editingRowId = null;
       draftRowId = null;
+      selectedExerciseId = null;
       target.innerHTML =
         '<div class="card quick-row-panel">' +
           '<p class="title">Nueva serie</p>' +
@@ -2138,6 +2246,7 @@
       const target = document.getElementById('quick-row-form');
       if (!target) return;
 
+      selectedExerciseId = null;
       target.innerHTML =
         '<div class="card" style="box-shadow:none; margin-top:10px">' +
           '<p class="title">Editar línea</p>' +
@@ -2174,6 +2283,7 @@
 
       editingRowId = null;
       draftRowId = null;
+      selectedExerciseId = null;
       target.innerHTML =
         '<div class="card quick-row-panel">' +
           '<p class="title">Editar serie</p>' +
@@ -2310,6 +2420,7 @@
       if (activeRestTimer) activeRestTimer = null;
       editingRowId = null;
       draftRowId = null;
+      selectedExerciseId = null;
       currentTableDate = null;
       currentTableDay = null;
       saveState();
@@ -2616,6 +2727,7 @@
         currentTableDate = matchingDate;
         editingRowId = null;
         draftRowId = null;
+        selectedExerciseId = null;
         rememberTableDate(currentTableDate, true);
         renderTable();
       } else {
@@ -2639,6 +2751,7 @@
       currentTableDay = getStoredDayForDate(date) || extractDayNumber(getWorkoutForDate(date)?.title) || '';
       editingRowId = null;
       draftRowId = null;
+      selectedExerciseId = null;
       closeDayMenu();
       rememberTableDate(currentTableDate, true);
       renderTable();
@@ -2663,6 +2776,29 @@
       const left = Math.min(Math.max(8, rect.left), window.innerWidth - menu.offsetWidth - 8);
       menu.style.top = top + 'px';
       menu.style.left = left + 'px';
+    }
+
+    function getExerciseReorderHandle(target) {
+      if (!target || !target.closest) return null;
+      return target.closest('[data-reorder-handle]');
+    }
+
+    function startExerciseLongPress(event) {
+      const handle = getExerciseReorderHandle(event.target);
+      if (!handle) return;
+      if (event.type === 'mousedown' && event.button !== 0) return;
+
+      window.clearTimeout(exerciseLongPressTimer);
+      const exerciseId = handle.dataset.exerciseId;
+      exerciseLongPressTimer = window.setTimeout(function() {
+        selectExerciseForReorder(exerciseId);
+        if (navigator.vibrate) navigator.vibrate(35);
+      }, 550);
+    }
+
+    function cancelExerciseLongPress() {
+      window.clearTimeout(exerciseLongPressTimer);
+      exerciseLongPressTimer = null;
     }
 
     function runTests() {
@@ -2710,6 +2846,14 @@
       if (target.classList.contains('btn-select-day')) selectLoadedDay(target.dataset.date);
       if (!target.dataset.dayPicker && !target.classList.contains('btn-select-day')) closeDayMenu();
 
+      if (target.classList.contains('btn-move-exercise')) {
+        moveSelectedExercise(target.dataset.targetExerciseId, target.dataset.position);
+      }
+
+      if (target.classList.contains('btn-clear-exercise-reorder')) {
+        clearExerciseReorderSelection();
+      }
+
       if (target.classList.contains('btn-edit-set')) {
         showEditSeriesPanel(target.dataset.workoutId, target.dataset.exerciseId, target.dataset.setId);
       }
@@ -2750,12 +2894,24 @@
         currentTableDay = null;
         editingRowId = null;
         draftRowId = null;
+        selectedExerciseId = null;
         rememberTableDate(currentTableDate, true);
         renderTable();
       }
       if (event.target && (event.target.id === 'table-day' || event.target.id === 'table-day-floating')) {
         handleDayInput(event.target.value);
       }
+    });
+
+    document.addEventListener('touchstart', startExerciseLongPress, { passive: true });
+    document.addEventListener('touchend', cancelExerciseLongPress);
+    document.addEventListener('touchcancel', cancelExerciseLongPress);
+    document.addEventListener('touchmove', cancelExerciseLongPress);
+    document.addEventListener('mousedown', startExerciseLongPress);
+    document.addEventListener('mouseup', cancelExerciseLongPress);
+    document.addEventListener('mouseleave', cancelExerciseLongPress);
+    document.addEventListener('contextmenu', function(event) {
+      if (getExerciseReorderHandle(event.target)) event.preventDefault();
     });
 
     window.addEventListener('DOMContentLoaded', function() {

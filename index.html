@@ -717,6 +717,30 @@
         0 12px 36px rgba(0,0,0,.28);
     }
 
+    .exercise-drag-ghost {
+      position: fixed;
+      left: 0;
+      top: 0;
+      z-index: 9999;
+      width: min(86vw, 360px);
+      padding: 12px;
+      border: 1px solid rgba(255,255,255,.96);
+      border-radius: 8px;
+      background: rgba(15, 20, 27, .97);
+      box-shadow: 0 16px 42px rgba(0,0,0,.48);
+      color: var(--text);
+      pointer-events: none;
+      transform: translate3d(-999px, -999px, 0);
+    }
+
+    .exercise-drag-ghost .exercise-title {
+      cursor: default;
+    }
+
+    .exercise-drag-ghost .set-row {
+      border-color: rgba(255,255,255,.55);
+    }
+
     .exercise-card-head {
       display: flex;
       align-items: flex-start;
@@ -1018,6 +1042,7 @@
     let exerciseLongPressPoint = null;
     let isExerciseReorderDragging = false;
     let pendingExerciseDrop = null;
+    let exerciseDragGhost = null;
     let currentTableDate = null;
     let currentTableDay = null;
     let activeRestTimer = null;
@@ -1895,6 +1920,7 @@
     }
 
     function renderTable() {
+      removeExerciseDragGhost();
       currentTableDate = getDefaultTableDate();
       currentTableDay = getDefaultTableDay();
       const rows = getRowsForCurrentDate();
@@ -1996,6 +2022,7 @@
       selectedExerciseId = null;
       isExerciseReorderDragging = false;
       pendingExerciseDrop = null;
+      removeExerciseDragGhost();
       clearExerciseDropMarkers();
       renderTable();
     }
@@ -2011,6 +2038,30 @@
       });
       const card = document.querySelector('.exercise-card[data-exercise-id="' + exerciseId + '"]');
       if (card) card.classList.add('is-reorder-selected');
+    }
+
+    function removeExerciseDragGhost() {
+      if (exerciseDragGhost) exerciseDragGhost.remove();
+      exerciseDragGhost = null;
+    }
+
+    function createExerciseDragGhost(exerciseId, point) {
+      removeExerciseDragGhost();
+      const card = document.querySelector('.exercise-card[data-exercise-id="' + exerciseId + '"]');
+      if (!card) return;
+      exerciseDragGhost = card.cloneNode(true);
+      exerciseDragGhost.classList.remove('is-reorder-selected', 'is-drop-before', 'is-drop-after');
+      exerciseDragGhost.classList.add('exercise-drag-ghost');
+      exerciseDragGhost.removeAttribute('data-exercise-id');
+      document.body.appendChild(exerciseDragGhost);
+      moveExerciseDragGhost(point);
+    }
+
+    function moveExerciseDragGhost(point) {
+      if (!exerciseDragGhost || !point) return;
+      const x = Math.min(window.innerWidth - 18, Math.max(18, point.x));
+      const y = Math.min(window.innerHeight - 18, Math.max(18, point.y));
+      exerciseDragGhost.style.transform = 'translate3d(' + x + 'px, ' + y + 'px, 0) translate(-50%, -24px)';
     }
 
     function moveSelectedExercise(targetExerciseId, position) {
@@ -2153,6 +2204,7 @@
     }
 
     function renderTable() {
+      removeExerciseDragGhost();
       currentTableDate = getDefaultTableDate();
       currentTableDay = getDefaultTableDay();
       const rows = getRowsForCurrentDate();
@@ -2870,6 +2922,13 @@
       return target.closest('[data-reorder-handle]');
     }
 
+    function shouldClearExerciseSelectionOnClick(target) {
+      if (!selectedExerciseId || isExerciseReorderDragging || !target || !target.closest) return false;
+      if (target.closest('.btn-move-exercise') || target.closest('.btn-clear-exercise-reorder')) return false;
+      const selectedCard = target.closest('.exercise-card.is-reorder-selected');
+      return !selectedCard;
+    }
+
     function startExerciseLongPress(event) {
       const handle = getExerciseReorderHandle(event.target);
       if (!handle) return;
@@ -2883,6 +2942,7 @@
         markExerciseForReorderDrag(exerciseId);
         isExerciseReorderDragging = true;
         pendingExerciseDrop = null;
+        createExerciseDragGhost(exerciseId, exerciseLongPressPoint);
         if (navigator.vibrate) navigator.vibrate(35);
       }, 550);
     }
@@ -2907,6 +2967,7 @@
       if (!point) return;
       if (event.cancelable) event.preventDefault();
       autoScrollDuringExerciseDrag(point.y);
+      moveExerciseDragGhost(point);
       updateExerciseDropTarget(point.x, point.y);
     }
 
@@ -2920,6 +2981,7 @@
       isExerciseReorderDragging = false;
       const drop = pendingExerciseDrop;
       pendingExerciseDrop = null;
+      removeExerciseDragGhost();
       clearExerciseDropMarkers();
       if (drop) moveSelectedExercise(drop.targetExerciseId, drop.position);
       else renderTable();
@@ -2951,6 +3013,11 @@
       const target = event.target;
       if (!target) return;
       const setDoneButton = target.closest ? target.closest('.set-rest-timer') : null;
+
+      if (shouldClearExerciseSelectionOnClick(target)) {
+        clearExerciseReorderSelection();
+        return;
+      }
 
       if (target.id === 'tab-table') setView('table');
       if (target.id === 'tab-goal') setView('goal');

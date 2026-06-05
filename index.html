@@ -695,7 +695,7 @@
     }
 
     .exercise-card.is-reorder-animating {
-      transition: transform 520ms cubic-bezier(.18, .72, .18, 1);
+      transition: transform 1040ms cubic-bezier(.18, .72, .18, 1);
     }
 
     .exercise-card.is-reorder-selected {
@@ -2093,7 +2093,7 @@
               { transform: 'translate3d(' + deltaX + 'px, ' + deltaY + 'px, 0)' },
               { transform: 'translate3d(0, 0, 0)' }
             ], {
-              duration: 520,
+              duration: 1040,
               easing: 'cubic-bezier(.18, .72, .18, 1)'
             });
             return;
@@ -2108,7 +2108,7 @@
           window.setTimeout(function() {
             card.classList.remove('is-reorder-animating');
             card.style.transform = '';
-          }, 540);
+          }, 1060);
         });
       });
     }

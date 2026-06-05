@@ -2087,29 +2087,55 @@
           const deltaX = previous.left - current.left;
           const deltaY = previous.top - current.top;
           if (!deltaX && !deltaY) return;
+
+          if (card.animate) {
+            card.animate([
+              { transform: 'translate3d(' + deltaX + 'px, ' + deltaY + 'px, 0)' },
+              { transform: 'translate3d(0, 0, 0)' }
+            ], {
+              duration: 260,
+              easing: 'cubic-bezier(.2, .8, .2, 1)'
+            });
+            return;
+          }
+
           card.style.transition = 'none';
           card.style.transform = 'translate3d(' + deltaX + 'px, ' + deltaY + 'px, 0)';
-        });
-
-        window.requestAnimationFrame(function() {
-          cards.forEach(function(card) {
-            if (!card.style.transform) return;
-            card.classList.add('is-reorder-animating');
-            card.style.transition = '';
-            card.style.transform = 'translate3d(0, 0, 0)';
-            window.setTimeout(function() {
-              card.classList.remove('is-reorder-animating');
-              card.style.transform = '';
-            }, 240);
-          });
+          card.getBoundingClientRect();
+          card.classList.add('is-reorder-animating');
+          card.style.transition = '';
+          card.style.transform = 'translate3d(0, 0, 0)';
+          window.setTimeout(function() {
+            card.classList.remove('is-reorder-animating');
+            card.style.transform = '';
+          }, 280);
         });
       });
     }
 
+    function resetExerciseReorderMode() {
+      selectedExerciseId = null;
+      isExerciseReorderDragging = false;
+      pendingExerciseDrop = null;
+      removeExerciseDragGhost();
+      clearExerciseDropMarkers();
+      document.querySelectorAll('.exercise-card.is-reorder-selected').forEach(function(card) {
+        card.classList.remove('is-reorder-selected');
+      });
+    }
+
     function moveSelectedExercise(targetExerciseId, position) {
-      if (!selectedExerciseId || !targetExerciseId || selectedExerciseId === targetExerciseId) return;
+      if (!selectedExerciseId || !targetExerciseId || selectedExerciseId === targetExerciseId) {
+        resetExerciseReorderMode();
+        renderTable();
+        return;
+      }
       const workout = getCurrentWorkout();
-      if (!workout) return;
+      if (!workout) {
+        resetExerciseReorderMode();
+        renderTable();
+        return;
+      }
 
       const fromIndex = workout.exercises.findIndex(function(exercise) {
         return exercise.id === selectedExerciseId;
@@ -2117,7 +2143,11 @@
       const targetIndex = workout.exercises.findIndex(function(exercise) {
         return exercise.id === targetExerciseId;
       });
-      if (fromIndex === -1 || targetIndex === -1) return;
+      if (fromIndex === -1 || targetIndex === -1) {
+        resetExerciseReorderMode();
+        renderTable();
+        return;
+      }
 
       const previousRects = captureExerciseCardRects();
       const moving = workout.exercises.splice(fromIndex, 1)[0];
@@ -2128,11 +2158,7 @@
       if (position === 'after') insertIndex += 1;
       workout.exercises.splice(insertIndex, 0, moving);
 
-      selectedExerciseId = null;
-      isExerciseReorderDragging = false;
-      pendingExerciseDrop = null;
-      removeExerciseDragGhost();
-      clearExerciseDropMarkers();
+      resetExerciseReorderMode();
       rememberTableDate(currentTableDate);
       storageSet(STORAGE_KEY, JSON.stringify(state));
       animateExerciseReorder(previousRects);
@@ -3034,7 +3060,7 @@
       clearExerciseDropMarkers();
       if (drop) moveSelectedExercise(drop.targetExerciseId, drop.position);
       else {
-        selectedExerciseId = null;
+        resetExerciseReorderMode();
         renderTable();
       }
     }

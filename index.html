@@ -694,6 +694,10 @@
       box-shadow: 0 12px 36px rgba(0,0,0,.28);
     }
 
+    .exercise-card.is-reorder-animating {
+      transition: transform 220ms ease;
+    }
+
     .exercise-card.is-reorder-selected {
       border-color: rgba(255,255,255,.96);
       box-shadow:
@@ -2064,6 +2068,44 @@
       exerciseDragGhost.style.transform = 'translate3d(' + x + 'px, ' + y + 'px, 0) translate(-50%, -24px)';
     }
 
+    function captureExerciseCardRects() {
+      const rects = {};
+      document.querySelectorAll('.exercise-card[data-exercise-id]').forEach(function(card) {
+        rects[card.dataset.exerciseId] = card.getBoundingClientRect();
+      });
+      return rects;
+    }
+
+    function animateExerciseReorder(previousRects) {
+      renderTable();
+      window.requestAnimationFrame(function() {
+        const cards = document.querySelectorAll('.exercise-card[data-exercise-id]');
+        cards.forEach(function(card) {
+          const previous = previousRects[card.dataset.exerciseId];
+          if (!previous) return;
+          const current = card.getBoundingClientRect();
+          const deltaX = previous.left - current.left;
+          const deltaY = previous.top - current.top;
+          if (!deltaX && !deltaY) return;
+          card.style.transition = 'none';
+          card.style.transform = 'translate3d(' + deltaX + 'px, ' + deltaY + 'px, 0)';
+        });
+
+        window.requestAnimationFrame(function() {
+          cards.forEach(function(card) {
+            if (!card.style.transform) return;
+            card.classList.add('is-reorder-animating');
+            card.style.transition = '';
+            card.style.transform = 'translate3d(0, 0, 0)';
+            window.setTimeout(function() {
+              card.classList.remove('is-reorder-animating');
+              card.style.transform = '';
+            }, 240);
+          });
+        });
+      });
+    }
+
     function moveSelectedExercise(targetExerciseId, position) {
       if (!selectedExerciseId || !targetExerciseId || selectedExerciseId === targetExerciseId) return;
       const workout = getCurrentWorkout();
@@ -2077,6 +2119,7 @@
       });
       if (fromIndex === -1 || targetIndex === -1) return;
 
+      const previousRects = captureExerciseCardRects();
       const moving = workout.exercises.splice(fromIndex, 1)[0];
       let insertIndex = workout.exercises.findIndex(function(exercise) {
         return exercise.id === targetExerciseId;
@@ -2085,8 +2128,14 @@
       if (position === 'after') insertIndex += 1;
       workout.exercises.splice(insertIndex, 0, moving);
 
-      saveState();
-      scrollToExerciseCard(selectedExerciseId);
+      selectedExerciseId = null;
+      isExerciseReorderDragging = false;
+      pendingExerciseDrop = null;
+      removeExerciseDragGhost();
+      clearExerciseDropMarkers();
+      rememberTableDate(currentTableDate);
+      storageSet(STORAGE_KEY, JSON.stringify(state));
+      animateExerciseReorder(previousRects);
     }
 
     function clearExerciseDropMarkers() {
@@ -2984,7 +3033,10 @@
       removeExerciseDragGhost();
       clearExerciseDropMarkers();
       if (drop) moveSelectedExercise(drop.targetExerciseId, drop.position);
-      else renderTable();
+      else {
+        selectedExerciseId = null;
+        renderTable();
+      }
     }
 
     function runTests() {
